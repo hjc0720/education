@@ -11,6 +11,7 @@
 ContentWidget::ContentWidget(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::ContentWidget)
+  ,m_nAnswerIndex(0)
 {
     ui->setupUi(this);
     m_nSecondsTimer = 0;
@@ -50,7 +51,7 @@ void ContentWidget::showAnswer(bool bRight)
 
 void ContentWidget::showResult()
 {
-    QSettings set("education","add2",this);
+	QSettings set("education","add_sub",this);
     int nCount = set.value("count",0).toInt();
 
     system_clock::time_point curTime =  system_clock::now();
@@ -69,7 +70,7 @@ void ContentWidget::showResult()
     int nStars = 0;
     if(m_nRightCount == 10)
     {
-        //nStars++;
+		nStars++;
         while(workTime.count() < preTime)
         {
             nStars++;
@@ -129,19 +130,57 @@ void ContentWidget::setQuestion()
     ui->id->display(m_nId);
     ui->rightNum->display(m_nRightCount);
     
-    int a = randomRange(1,10);
-    int b = randomRange(1,10);
-    int c = a + b;
-    ui->add1->display(a);
-    ui->add2->display(b);
+	int nSignCount = randomRange(1,2);
 
+	std::vector<int> sign;//0:+ 1:-
+	std::vector<int> num;
+	int ret = 0;
+	//first num
+	num.push_back(randomRange(0,20));
+	sign.push_back(randomRange(0,1));
+	//second num;
+	if(sign[0])
+	{
+		num.push_back(randomRange(0,20-num[0]));
+		ret = num[0] + num[1];
+	}
+	else
+	{
+		num.push_back(randomRange(0,num[0]));
+		ret = num[0] - num[1];
+	}
+
+	//third num;
+	if(nSignCount >=2)
+	{
+		sign.push_back(randomRange(0,1));
+		if(sign[1])
+		{
+			num.push_back(randomRange(0,20-ret));
+			ret = ret + num[2];
+		}
+		else
+		{
+			num.push_back(randomRange(0,ret));
+			ret = ret - num[2];
+		}
+	}
+
+	QString qStr = QString::number(num[0]);
+	for(int i = 1; i < num.size(); i++)
+	{
+		qStr += (sign[i - 1] == 1) ? " + " :" - ";
+		qStr += QString::number(num[i]);
+	}
+	qStr += " = ";
+	ui->equation->setText(qStr);
     m_nAnswerIndex = randomRange(0,3);
 
     std::set<int> value;
     while(value.size() != 3)
     {
-        int temp = randomRange(1,20);
-        if(temp == c)
+		int temp = randomRange(0,20);
+		if(temp == ret)
             continue;
         value.insert(temp);
     }
@@ -150,7 +189,7 @@ void ContentWidget::setQuestion()
     for(int i = 0; i < 4; i++)
     {
         if(i == m_nAnswerIndex)
-            getSelect(i)->display(c);
+			getSelect(i)->display(ret);
         else
         {
             getSelect(i)->display(*it++);

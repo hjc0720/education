@@ -9,8 +9,10 @@
 #include "resultdlg.h"
 
 ContentWidget::ContentWidget(QWidget *parent) :
-    QWidget(parent),
-    ui(new Ui::ContentWidget)
+    QWidget(parent)
+    ,m_nTotalSeconds(60)
+  ,m_nAnswerIndex(0)
+    ,ui(new Ui::ContentWidget)
 {
     ui->setupUi(this);
     m_nSecondsTimer = 0;
@@ -29,7 +31,7 @@ void ContentWidget::start()
     m_startTime = system_clock::now();
     if(m_nSecondsTimer != 0)
         killTimer(m_nSecondsTimer);
-    m_nSecondsTimer =  startTimer(1000,Qt::VeryCoarseTimer);
+    m_nSecondsTimer =  startTimer(1000,Qt::PreciseTimer);
     setQuestion();
 }
 
@@ -50,41 +52,36 @@ void ContentWidget::showAnswer(bool bRight)
 
 void ContentWidget::showResult()
 {
-    QSettings set("education","add2",this);
+    QSettings set("education","add_sub_time",this);
+
+    int preCount = set.value("rigthcount",40).toInt();
+
+    if(m_nRightCount > preCount)
+        set.setValue("rightcount",m_nRightCount);
+
     int nCount = set.value("count",0).toInt();
 
-    system_clock::time_point curTime =  system_clock::now();
-    seconds workTime = duration_cast<seconds>( curTime - m_startTime);
-    int preTime = set.value("minTime",999).toInt();
-    if(m_nRightCount == 10)
-        set.setValue("minTime",std::min<int>(workTime.count(),preTime));
-
     QString key(QString("Test%1").arg(nCount));
-    set.setValue(key+"/time",(int)workTime.count());
 
+    system_clock::time_point curTime =  system_clock::now();
     time_t tt = system_clock::to_time_t(curTime);
     set.setValue(key+"/date",ctime(&tt));
     set.setValue(key+"/right",m_nRightCount);
 
     int nStars = 0;
-    if(m_nRightCount == 10)
+    int nMinCount = std::min(59,std::max(preCount,40));
+    int nMaxCount = std::max(preCount,60);
+    if(m_nRightCount >= nMinCount)
     {
-        //nStars++;
-        while(workTime.count() < preTime)
-        {
-            nStars++;
-            preTime /= 2;
-        }
+        nStars = 4*(m_nRightCount - nMinCount) / (nMaxCount - nMinCount)+1;
     }
     set.setValue(key+"/star",nStars);
-
     set.setValue("count",++nCount);
-
 
     ResultDlg dlg(this);
     dlg.setRightCount(m_nRightCount);
     dlg.setStars(nStars);;
-    dlg.setUseTime(workTime.count());
+    dlg.setUseTime(m_nTotalSeconds);
     if(dlg.exec())
     {
         start();
@@ -119,7 +116,18 @@ void ContentWidget::timerEvent(QTimerEvent *event)
         return;
     system_clock::time_point curTime =  system_clock::now();
     seconds workTime = duration_cast<seconds>( curTime - m_startTime);
-    ui->workTime->display(static_cast<int>(workTime.count()));
+    int nLeftSeconds = m_nTotalSeconds - workTime.count();
+    if(nLeftSeconds < 10 && nLeftSeconds >=0)
+        ui->workTime->setStyleSheet("color:red");
+    else if(nLeftSeconds <=0)
+    {
+        killTimer(m_nSecondsTimer);
+        m_nSecondsTimer = 0;
+        showResult();
+    }
+    else
+        ui->workTime->setStyleSheet("color:black");
+    ui->workTime->display(static_cast<int>(nLeftSeconds));
 }
 
 void ContentWidget::setQuestion()
@@ -129,19 +137,57 @@ void ContentWidget::setQuestion()
     ui->id->display(m_nId);
     ui->rightNum->display(m_nRightCount);
     
-    int a = randomRange(1,10);
-    int b = randomRange(1,10);
-    int c = a + b;
-    ui->add1->display(a);
-    ui->add2->display(b);
+    int nSignCount = 1;
 
+	std::vector<int> sign;//0:+ 1:-
+	std::vector<int> num;
+	int ret = 0;
+	//first num
+    num.push_back(randomRange(0,10));
+	sign.push_back(randomRange(0,1));
+	//second num;
+	if(sign[0])
+	{
+        num.push_back(randomRange(0,10-num[0]));
+		ret = num[0] + num[1];
+	}
+	else
+	{
+		num.push_back(randomRange(0,num[0]));
+		ret = num[0] - num[1];
+	}
+
+	//third num;
+	if(nSignCount >=2)
+	{
+		sign.push_back(randomRange(0,1));
+		if(sign[1])
+		{
+			num.push_back(randomRange(0,20-ret));
+			ret = ret + num[2];
+		}
+		else
+		{
+			num.push_back(randomRange(0,ret));
+			ret = ret - num[2];
+		}
+	}
+
+	QString qStr = QString::number(num[0]);
+    for(int i = 1; i < (int)num.size(); i++)
+	{
+		qStr += (sign[i - 1] == 1) ? " + " :" - ";
+		qStr += QString::number(num[i]);
+	}
+	qStr += " = ";
+	ui->equation->setText(qStr);
     m_nAnswerIndex = randomRange(0,3);
 
     std::set<int> value;
     while(value.size() != 3)
     {
-        int temp = randomRange(1,20);
-        if(temp == c)
+        int temp = randomRange(0,10);
+		if(temp == ret)
             continue;
         value.insert(temp);
     }
@@ -150,7 +196,7 @@ void ContentWidget::setQuestion()
     for(int i = 0; i < 4; i++)
     {
         if(i == m_nAnswerIndex)
-            getSelect(i)->display(c);
+			getSelect(i)->display(ret);
         else
         {
             getSelect(i)->display(*it++);
@@ -176,11 +222,18 @@ void ContentWidget::mouseReleaseEvent(QMouseEvent *event)
     showAnswer(nIndex == m_nAnswerIndex);
 
     if(nIndex == m_nAnswerIndex)
+    {
         m_nRightCount++;
+        setQuestion();
+    }
+    else
+    {
+        QTimer::singleShot(1000,this,SLOT(setQuestion()));
+    }
 
     //ui->rightNum->display(m_nRightCount);
-    if(m_nId == 10)
-        QTimer::singleShot(1000,this,SLOT(showResult()));
-    else
-        QTimer::singleShot(1000,this,SLOT(setQuestion()));
+//    if(m_nId == 10)
+//        QTimer::singleShot(1000,this,SLOT(showResult()));
+//    else
+//        QTimer::singleShot(1000,this,SLOT(setQuestion()));
 }
